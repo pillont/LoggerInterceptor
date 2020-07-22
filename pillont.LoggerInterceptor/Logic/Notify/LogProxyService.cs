@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Subjects;
 using System.Reflection;
 using pillont.LoggerInterceptors.Factory;
 using pillont.LoggerInterceptors.Logic.CollectAttributes;
+using pillont.LoggerInterceptors.Logic.Notify.Contexts;
 
 namespace pillont.LoggerInterceptors.Logic.Notify
 {
@@ -33,9 +35,9 @@ namespace pillont.LoggerInterceptors.Logic.Notify
         /// </summary>
         private AttributeCache AttributeCache { get; }
 
-        public LogProxyService(Action<string> onLog, Action<string, Exception> onError)
+        public LogProxyService(ISubject<BaseLogContext> logSubject)
         {
-            Service = new LogAttributeService(onLog, onError);
+            Service = new LogAttributeService(logSubject);
             AttributeCache = new AttributeCache();
         }
 
@@ -55,29 +57,34 @@ namespace pillont.LoggerInterceptors.Logic.Notify
 
         internal void ApplyErrorLogs(MethodInfo method, Exception e)
         {
-            Service.ApplyErrorLogs(method, e);
+            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(method);
+            var attribute = attributeCollection.CurrentMethodAttributes
+                                    .Union(
+                                        attributeCollection.InterfaceMethodAttributes)
+                                    .Distinct()
+                                    .FirstOrDefault();
+            Service.ApplyErrorLogs(method, e, attribute);
         }
 
         internal void ApplyResultLogs(MethodInfo method, object returnValue)
         {
-            if (method.ReturnType == typeof(void))
-                return;
-
             AttributeCollection attributeCollection = AttributeCache.CollectWithCache(method);
             MethodInfo currentMethod = attributeCollection.CurrentMethod;
             MethodInfo interfaceMethod = attributeCollection.InterfaceMethod;
 
-            if (attributeCollection.InterfaceMethodAttributes.Any(attr => attr.Action.HasFlag(LogAction.OnEnd)))
+            var attribute = attributeCollection.InterfaceMethodAttributes.FirstOrDefault(at => at.Action.HasFlag(LogAction.OnEnd));
+            if (attribute != null)
             {
-                Service.ApplyLogOnResult(method, returnValue);
+                Service.ApplyLogOnResult(method, returnValue, attribute);
                 return;
             }
 
+            attribute = attributeCollection.CurrentMethodAttributes.FirstOrDefault(attr => attr.Action.HasFlag(LogAction.OnEnd));
             if (currentMethod == interfaceMethod
-            || !attributeCollection.CurrentMethodAttributes.Any(attr => attr.Action.HasFlag(LogAction.OnEnd)))
+            || attribute == null)
                 return;
 
-            Service.ApplyLogOnResult(method, returnValue);
+            Service.ApplyLogOnResult(method, returnValue, attribute);
         }
 
         private void ApplyLogOnMethod(MethodInfo method, IEnumerable<LogAttribute> allAttributes, object[] allParameters)

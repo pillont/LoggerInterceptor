@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reactive.Subjects;
 using System.Threading.Tasks;
 using pillont.LoggerInterceptors.Factory;
+using pillont.LoggerInterceptors.Logic.Notify.Contexts;
 using Xunit;
 
 namespace pillont.LoggerInterceptors.UnitTest
@@ -20,20 +23,18 @@ namespace pillont.LoggerInterceptors.UnitTest
             public Task SuperVoidFunctionAsync(int value);
         }
 
-        public List<string> Errors { get; }
-        public LoggerProxyFactory Factory { get; private set; }
-        public List<string> Logged { get; }
+        public List<BaseLogContext> ContextShared { get; }
+        public Subject<BaseLogContext> Subject { get; }
         private ISuperObject SuperObj { get; set; }
 
         public AsyncFunctionsTests()
         {
-            Logged = new List<string>();
-            Errors = new List<string>();
-            Factory = new LoggerProxyFactory();
-            Factory.OnLog += (str) => Logged.Add(str);
-            Factory.OnError += (str, e) => Errors.Add($"{str} : {e}");
+            ContextShared = new List<BaseLogContext>();
+            Subject = new Subject<BaseLogContext>();
+            Subject.Subscribe(val => ContextShared.Add(val));
 
-            SuperObj = Factory.CreateForInterface<ISuperObject>(new SuperObject());
+            var factory = new LoggerProxyFactory(Subject);
+            SuperObj = factory.CreateForInterface<ISuperObject>(new SuperObject());
         }
 
         [Fact]
@@ -45,10 +46,22 @@ namespace pillont.LoggerInterceptors.UnitTest
             // waiting async log
             await Task.Delay(1000);
 
-            Assert.Single(Logged);
-            Assert.Equal("SuperFunctionWithErrorAsync was called with value : [ value : 42 ]", Logged[0]);
-            Assert.Single(Errors);
-            Assert.StartsWith("SuperFunctionWithErrorAsync an error applied : System.AggregateException: One or more errors occurred. (c est le drame ptain !)\r\n ---> System.InvalidOperationException: c est le drame ptain !\r\n   at pillont.LoggerInterceptors.UnitTest.AsyncFunctionsTests.SuperObject.SuperFunctionWithErrorAsync(Int32 value) in", Errors[0]);
+            Assert.Equal(2, ContextShared.Count);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithErrorAsync), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
+
+            var error = ContextShared[1] as ErrorLogContext;
+            Assert.NotNull(error);
+            Assert.NotNull(error.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithErrorAsync), error.Method.Name);
+            Assert.IsType<AggregateException>(error.Exception);
+            Assert.IsType<InvalidOperationException>((error.Exception as AggregateException).InnerException);
         }
 
         [Fact]
@@ -58,9 +71,21 @@ namespace pillont.LoggerInterceptors.UnitTest
             // waiting async log
             await Task.Delay(1000);
 
-            Assert.Equal(2, Logged.Count);
-            Assert.Equal("SuperFunctionAsync was called with value : [ value : 42 ]", Logged[0]);
-            Assert.Equal("SuperFunctionAsync return result : \"super param is : 42\"", Logged[1]);
+            Assert.Equal(2, ContextShared.Count);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionAsync), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
+
+            var result = ContextShared[1] as ResultLogContext;
+            Assert.NotNull(result);
+            Assert.NotNull(result.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionAsync), result.Method.Name);
+            Assert.Equal("super param is : 42", result.Result);
         }
 
         [Fact]
@@ -68,8 +93,23 @@ namespace pillont.LoggerInterceptors.UnitTest
         {
             await SuperObj.SuperVoidFunctionAsync(42);
 
-            Assert.Single(Logged);
-            Assert.Equal("SuperVoidFunctionAsync was called with value : [ value : 42 ]", Logged[0]);
+            // waiting async log
+            await Task.Delay(1000);
+
+            Assert.Equal(2, ContextShared.Count);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperVoidFunctionAsync), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
+
+            Assert.IsType<VoidResultLogContext>(ContextShared[1]);
+            var result = ContextShared[1] as VoidResultLogContext;
+            Assert.NotNull(result.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperVoidFunctionAsync), result.Method.Name);
         }
 
         public class SuperObject : ISuperObject

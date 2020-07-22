@@ -1,33 +1,34 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Reactive.Subjects;
 using System.Reflection;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using pillont.LoggerInterceptors.Factory;
+using pillont.LoggerInterceptors.Logic.Notify.Contexts;
 
 namespace pillont.LoggerInterceptors.Logic.Notify
 {
     internal class LogAttributeService
     {
-        public Action<string, Exception> OnError { get; }
-        public Action<string> OnLog { get; }
+        public ISubject<BaseLogContext> LogSubject { get; }
 
-        public LogAttributeService(Action<string> onLog, Action<string, Exception> onError)
+        public LogAttributeService(ISubject<BaseLogContext> logSubject)
         {
-            OnLog = onLog ?? throw new ArgumentNullException(nameof(onLog));
-            OnError = onError ?? throw new ArgumentNullException(nameof(onError));
+            LogSubject = logSubject ?? throw new ArgumentNullException(nameof(logSubject));
         }
 
-        internal void ApplyErrorLogs(MethodInfo method, Exception e)
+        internal void ApplyErrorLogs(MethodInfo method, Exception e, LogAttribute attr)
         {
-            var builder = GetBuilderForMethod(method);
-            builder.Append($" an error applied");
-            OnError.Invoke(builder.ToString(), e);
+            var ctx = new ErrorLogContext()
+            {
+                Method = method,
+                Exception = e,
+                Attribute = attr
+            };
+
+            LogSubject.OnNext(ctx);
         }
 
-        internal void ApplyLogOnResult(MethodInfo method, object returnValue)
+        internal void ApplyLogOnResult(MethodInfo method, object returnValue, LogAttribute attr)
         {
             if (returnValue is Task taskResult)
             {
@@ -35,61 +36,77 @@ namespace pillont.LoggerInterceptors.Logic.Notify
                 {
                     if (t.Exception != null)
                     {
-                        ApplyErrorLogs(method, t.Exception);
+                        ApplyErrorLogs(method, t.Exception, attr);
                         return;
                     }
 
-                    Type resultType = t.GetType();
-
+                    Type resultType = method.ReturnType;
                     var resultProp = resultType.GetProperty("Result");
                     if (resultProp is null)
+                    {
+                        // CASE : TASK without result
+                        NotifyVoidResultLogs(method, attr);
                         return;
+                    }
 
+                    // CASE : TASK with result
                     var result = resultProp.GetGetMethod().Invoke(t, null);
-                    NotifyResultLog(method, result);
+                    NotifyResultLogs(method, result, attr);
                 });
                 return;
             }
 
-            NotifyResultLog(method, returnValue);
+            if (method.ReturnType == typeof(void))
+            {
+                // CASE : synchrone void function
+                NotifyVoidResultLogs(method, attr);
+                return;
+            }
+            // CASE : synchrone result function
+            NotifyResultLogs(method, returnValue, attr);
         }
 
         internal void ApplyLogOnValue(LogAttribute attr, MethodInfo method, object[] allParameters)
         {
-            if (attr.Action.HasFlag(LogAction.OnCall))
+            if (!attr.Action.HasFlag(LogAction.OnCall))
             {
-                var builder = GetBuilderForMethod(method);
-                builder.Append(" was called");
-
-                var allParams = method.GetParameters();
-                if (allParams.Any())
-                {
-                    var allP = new List<string>();
-                    int index = 0;
-                    foreach (var p in allParams)
-                    {
-                        string value = JsonSerializer.Serialize(allParameters[index]);
-                        allP.Add($"{p.Name} : {value}");
-                        index++;
-                    }
-
-                    builder.Append($" with value : [ {string.Join(", ", allP)} ]");
-                }
-
-                OnLog(builder.ToString());
+                return;
             }
+
+            var allParams = method.GetParameters();
+
+            var ctx = new StartLogContext()
+            {
+                Method = method,
+                Attribute = attr,
+                Parameters = allParams,
+                Values = allParameters,
+            };
+
+            LogSubject.OnNext(ctx);
         }
 
-        private static StringBuilder GetBuilderForMethod(MethodInfo method)
+        private void NotifyResultLogs(MethodInfo method, object result, LogAttribute attr)
         {
-            return new StringBuilder($"{method.Name}");
+            var ctx = new ResultLogContext()
+            {
+                Method = method,
+                Attribute = attr,
+                Result = result,
+            };
+
+            LogSubject.OnNext(ctx);
         }
 
-        private void NotifyResultLog(MethodInfo method, object returnValue)
+        private void NotifyVoidResultLogs(MethodInfo method, LogAttribute attr)
         {
-            var builder = GetBuilderForMethod(method);
-            builder.Append($" return result : {JsonSerializer.Serialize(returnValue)}");
-            OnLog(builder.ToString());
+            var ctx = new VoidResultLogContext()
+            {
+                Method = method,
+                Attribute = attr,
+            };
+
+            LogSubject.OnNext(ctx);
         }
     }
 }

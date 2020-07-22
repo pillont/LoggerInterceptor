@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Reactive.Subjects;
 using System.Threading.Tasks;
 using pillont.LoggerInterceptors.Factory;
+using pillont.LoggerInterceptors.Logic.Notify.Contexts;
 using Xunit;
 
 namespace pillont.LoggerInterceptors.UnitTest
@@ -24,71 +26,101 @@ namespace pillont.LoggerInterceptors.UnitTest
             public void SuperVoidFunction(int value);
         }
 
-        public List<string> Errors { get; }
-        public LoggerProxyFactory Factory { get; private set; }
-        public List<string> Logged { get; }
-        public ISuperObject Superobj { get; private set; }
+        public List<BaseLogContext> ContextShared { get; }
+        public Subject<BaseLogContext> Subject { get; }
+        public ISuperObject SuperObj { get; }
 
         public SimpleFunctionsTests()
         {
-            Logged = new List<string>();
-            Errors = new List<string>();
-            Factory = new LoggerProxyFactory();
-            Factory.OnLog += (str) => Logged.Add(str);
-            Factory.OnError += (str, e) => Errors.Add($"{str} : {e}");
+            ContextShared = new List<BaseLogContext>();
+            Subject = new Subject<BaseLogContext>();
+            Subject.Subscribe(val => ContextShared.Add(val));
 
-            Superobj = Factory.CreateForInterface<ISuperObject>(new SuperObject());
-        }
-
-        [Fact]
-        public void NoEventTest()
-        {
-            Factory = new LoggerProxyFactory();
-            Superobj = Factory.CreateForInterface<ISuperObject>(new SuperObject());
-
-            Assert.Throws<InvalidOperationException>(() =>
-                                         Superobj.SuperFunction(42));
+            var factory = new LoggerProxyFactory(Subject);
+            SuperObj = factory.CreateForInterface<ISuperObject>(new SuperObject());
         }
 
         [Fact]
         public void SimpleEnterAndResultTest()
         {
-            Superobj.SuperFunctionWithResult(42);
+            SuperObj.SuperFunctionWithResult(42);
 
-            Assert.Equal(2, Logged.Count);
-            Assert.Equal("SuperFunctionWithResult was called with value : [ value : 42 ]", Logged[0]);
-            Assert.Equal("SuperFunctionWithResult return result : \"super param is : 42\"", Logged[1]);
+            Assert.Equal(2, ContextShared.Count);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithResult), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
+
+            var result = ContextShared[1] as ResultLogContext;
+            Assert.NotNull(result);
+            Assert.NotNull(result.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithResult), result.Method.Name);
+            Assert.Equal("super param is : 42", result.Result);
         }
 
         [Fact]
         public void SimpleEnterTest()
         {
-            Superobj.SuperFunction(42);
+            SuperObj.SuperFunction(42);
 
-            Assert.Single(Logged);
-            Assert.Equal("SuperFunction was called with value : [ value : 42 ]", Logged[0]);
+            Assert.Single(ContextShared);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunction), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
         }
 
         [Fact]
         public void SimpleErrorTest()
         {
             Assert.Throws<InvalidOperationException>(() =>
-                                     Superobj.SuperFunctionWithError(42));
+                                     SuperObj.SuperFunctionWithError(42));
 
-            Assert.Single(Logged);
-            Assert.Equal("SuperFunctionWithError was called with value : [ value : 42 ]", Logged[0]);
+            Assert.Equal(2, ContextShared.Count);
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithError), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
 
-            Assert.Single(Errors);
-            Assert.StartsWith("SuperFunctionWithError an error applied : System.InvalidOperationException: ben was here and BOOM !\r\n   at pillont.LoggerInterceptors.UnitTest.SimpleFunctionsTests.SuperObject.SuperFunctionWithError(Int32 value) in ", Errors[0]);
+            Assert.IsType<ErrorLogContext>(ContextShared[1]);
+            var error = ContextShared[1] as ErrorLogContext;
+            Assert.NotNull(error.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperFunctionWithError), error.Method.Name);
+            Assert.IsType<InvalidOperationException>(error.Exception);
         }
 
         [Fact]
         public void SimpleVoidTest()
         {
-            Superobj.SuperVoidFunction(42);
+            SuperObj.SuperVoidFunction(42);
 
-            Assert.Single(Logged);
-            Assert.Equal("SuperVoidFunction was called with value : [ value : 42 ]", Logged[0]);
+            Assert.Equal(2, ContextShared.Count);
+
+            var start = ContextShared[0] as StartLogContext;
+            Assert.NotNull(start);
+            Assert.NotNull(start.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperVoidFunction), start.Method.Name);
+            Assert.Single(start.Parameters);
+            Assert.Equal("value", start.Parameters[0].Name);
+            Assert.Single(start.Values);
+            Assert.Equal(42, start.Values[0]);
+
+            Assert.IsType<VoidResultLogContext>(ContextShared[1]);
+            var result = ContextShared[1] as VoidResultLogContext;
+            Assert.NotNull(result.Attribute);
+            Assert.Equal(nameof(SuperObj.SuperVoidFunction), result.Method.Name);
         }
 
         public class SuperObject : ISuperObject
