@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reactive.Subjects;
 using System.Reflection;
+using Castle.DynamicProxy;
 using pillont.LoggerInterceptors.Factory;
 using pillont.LoggerInterceptors.Logic.CollectAttributes;
 using pillont.LoggerInterceptors.Logic.Notify.Contexts;
@@ -41,41 +42,41 @@ namespace pillont.LoggerInterceptors.Logic.Notify
             AttributeCache = new AttributeCache();
         }
 
-        public void ApplyCallLogs(MethodInfo method, object[] parameters)
+        public void ApplyCallLogs(IInvocation invocation)
         {
-            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(method);
+            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(invocation.Method);
             MethodInfo currentMethod = attributeCollection.CurrentMethod;
             MethodInfo interfaceMethod = attributeCollection.InterfaceMethod;
 
-            ApplyLogOnMethod(attributeCollection.InterfaceMethod, attributeCollection.InterfaceMethodAttributes, parameters);
+            ApplyLogOnMethod(invocation, attributeCollection.InterfaceMethodAttributes);
 
             if (currentMethod != interfaceMethod)
             {
-                ApplyLogOnMethod(currentMethod, attributeCollection.CurrentMethodAttributes, parameters);
+                ApplyLogOnMethod(invocation, attributeCollection.CurrentMethodAttributes);
             }
         }
 
-        internal void ApplyErrorLogs(MethodInfo method, Exception e)
+        internal void ApplyErrorLogs(IInvocation invocation, Exception e)
         {
-            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(method);
+            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(invocation.Method);
             var attribute = attributeCollection.CurrentMethodAttributes
                                     .Union(
                                         attributeCollection.InterfaceMethodAttributes)
                                     .Distinct()
                                     .FirstOrDefault();
-            Service.ApplyErrorLogs(method, e, attribute);
+            Service.ApplyErrorLogs(invocation, e, attribute);
         }
 
-        internal void ApplyResultLogs(MethodInfo method, object returnValue)
+        internal void ApplyResultLogs(IInvocation invocation)
         {
-            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(method);
+            AttributeCollection attributeCollection = AttributeCache.CollectWithCache(invocation.Method);
             MethodInfo currentMethod = attributeCollection.CurrentMethod;
             MethodInfo interfaceMethod = attributeCollection.InterfaceMethod;
 
             var attribute = attributeCollection.InterfaceMethodAttributes.FirstOrDefault(at => at.Action.HasFlag(LogAction.OnEnd));
             if (attribute != null)
             {
-                Service.ApplyLogOnResult(method, returnValue, attribute);
+                Service.ApplyLogOnResult(invocation, attribute);
                 return;
             }
 
@@ -84,14 +85,14 @@ namespace pillont.LoggerInterceptors.Logic.Notify
             || attribute == null)
                 return;
 
-            Service.ApplyLogOnResult(method, returnValue, attribute);
+            Service.ApplyLogOnResult(invocation, attribute);
         }
 
-        private void ApplyLogOnMethod(MethodInfo method, IEnumerable<LogAttribute> allAttributes, object[] allParameters)
+        private void ApplyLogOnMethod(IInvocation invocation, IEnumerable<LogAttribute> allAttributes)
         {
             foreach (var attr in allAttributes)
             {
-                Service.ApplyLogOnValue(attr, method, allParameters);
+                Service.ApplyLogOnValue(invocation, attr);
             }
         }
     }

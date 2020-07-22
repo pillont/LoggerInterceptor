@@ -3,6 +3,3 @@ LogHeader => sur la classe ou l interface pour faire une conf generale
 HeaderMessage => possibilité d overrider la fonction GetBuilderForMethod
 ErrorMessage => possibilité d overrider le apprend dans ApplyErrorLogs
 
-Les actions : passer un object plutot qu'un string pour que ce soit l utilisateur qui format son string
-
-

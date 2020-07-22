@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reactive.Subjects;
 using System.Threading.Tasks;
 using pillont.LoggerInterceptors.Factory;
@@ -51,10 +50,9 @@ namespace pillont.LoggerInterceptors.UnitTest
             Assert.NotNull(start);
             Assert.NotNull(start.Attribute);
             Assert.Equal(nameof(SuperObj.SuperFunctionWithErrorAsync), start.Method.Name);
-            Assert.Single(start.Parameters);
-            Assert.Equal("value", start.Parameters[0].Name);
-            Assert.Single(start.Values);
-            Assert.Equal(42, start.Values[0]);
+            Assert.Single(start.Arguments);
+            Assert.Equal(42, start.Arguments[0]);
+            Assert.Equal(SuperObj, start.CalledObject);
 
             var error = ContextShared[1] as ErrorLogContext;
             Assert.NotNull(error);
@@ -62,6 +60,7 @@ namespace pillont.LoggerInterceptors.UnitTest
             Assert.Equal(nameof(SuperObj.SuperFunctionWithErrorAsync), error.Method.Name);
             Assert.IsType<AggregateException>(error.Exception);
             Assert.IsType<InvalidOperationException>((error.Exception as AggregateException).InnerException);
+            Assert.Equal(SuperObj, error.CalledObject);
         }
 
         [Fact]
@@ -76,16 +75,16 @@ namespace pillont.LoggerInterceptors.UnitTest
             Assert.NotNull(start);
             Assert.NotNull(start.Attribute);
             Assert.Equal(nameof(SuperObj.SuperFunctionAsync), start.Method.Name);
-            Assert.Single(start.Parameters);
-            Assert.Equal("value", start.Parameters[0].Name);
-            Assert.Single(start.Values);
-            Assert.Equal(42, start.Values[0]);
+            Assert.Single(start.Arguments);
+            Assert.Equal(42, start.Arguments[0]);
+            Assert.Equal(SuperObj, start.CalledObject);
 
             var result = ContextShared[1] as ResultLogContext;
             Assert.NotNull(result);
             Assert.NotNull(result.Attribute);
             Assert.Equal(nameof(SuperObj.SuperFunctionAsync), result.Method.Name);
             Assert.Equal("super param is : 42", result.Result);
+            Assert.Equal(SuperObj, result.CalledObject);
         }
 
         [Fact]
@@ -101,15 +100,15 @@ namespace pillont.LoggerInterceptors.UnitTest
             Assert.NotNull(start);
             Assert.NotNull(start.Attribute);
             Assert.Equal(nameof(SuperObj.SuperVoidFunctionAsync), start.Method.Name);
-            Assert.Single(start.Parameters);
-            Assert.Equal("value", start.Parameters[0].Name);
-            Assert.Single(start.Values);
-            Assert.Equal(42, start.Values[0]);
+            Assert.Single(start.Arguments);
+            Assert.Equal(42, start.Arguments[0]);
+            Assert.Equal(SuperObj, start.CalledObject);
 
             Assert.IsType<VoidResultLogContext>(ContextShared[1]);
             var result = ContextShared[1] as VoidResultLogContext;
             Assert.NotNull(result.Attribute);
             Assert.Equal(nameof(SuperObj.SuperVoidFunctionAsync), result.Method.Name);
+            Assert.Equal(SuperObj, result.CalledObject);
         }
 
         public class SuperObject : ISuperObject

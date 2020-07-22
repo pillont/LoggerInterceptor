@@ -2,6 +2,7 @@
 using System.Reactive.Subjects;
 using System.Reflection;
 using System.Threading.Tasks;
+using Castle.DynamicProxy;
 using pillont.LoggerInterceptors.Factory;
 using pillont.LoggerInterceptors.Logic.Notify.Contexts;
 
@@ -16,93 +17,98 @@ namespace pillont.LoggerInterceptors.Logic.Notify
             LogSubject = logSubject ?? throw new ArgumentNullException(nameof(logSubject));
         }
 
-        internal void ApplyErrorLogs(MethodInfo method, Exception e, LogAttribute attr)
+        internal void ApplyErrorLogs(IInvocation invocation, Exception e, LogAttribute attr)
         {
             var ctx = new ErrorLogContext()
             {
-                Method = method,
+                Method = invocation.Method,
                 Exception = e,
-                Attribute = attr
+                Attribute = attr,
+                CalledObject = invocation.Proxy,
             };
 
             LogSubject.OnNext(ctx);
         }
 
-        internal void ApplyLogOnResult(MethodInfo method, object returnValue, LogAttribute attr)
+        internal void ApplyLogOnResult(IInvocation invocation, LogAttribute attr)
         {
-            if (returnValue is Task taskResult)
+            if (invocation.ReturnValue is Task taskResult)
             {
                 taskResult.ContinueWith(t =>
                 {
                     if (t.Exception != null)
                     {
-                        ApplyErrorLogs(method, t.Exception, attr);
+                        ApplyErrorLogs(invocation, t.Exception, attr);
                         return;
                     }
 
-                    Type resultType = method.ReturnType;
+                    Type resultType = invocation.Method.ReturnType;
                     var resultProp = resultType.GetProperty("Result");
                     if (resultProp is null)
                     {
                         // CASE : TASK without result
-                        NotifyVoidResultLogs(method, attr);
+                        NotifyVoidResultLogs(invocation, attr);
                         return;
                     }
 
                     // CASE : TASK with result
                     var result = resultProp.GetGetMethod().Invoke(t, null);
-                    NotifyResultLogs(method, result, attr);
+                    NotifyResultLogs(invocation, attr, result);
                 });
                 return;
             }
 
-            if (method.ReturnType == typeof(void))
+            if (invocation.Method.ReturnType == typeof(void))
             {
                 // CASE : synchrone void function
-                NotifyVoidResultLogs(method, attr);
+                NotifyVoidResultLogs(invocation, attr);
                 return;
             }
             // CASE : synchrone result function
-            NotifyResultLogs(method, returnValue, attr);
+            NotifyResultLogs(invocation, attr);
         }
 
-        internal void ApplyLogOnValue(LogAttribute attr, MethodInfo method, object[] allParameters)
+        internal void ApplyLogOnValue(IInvocation invocation, LogAttribute attr)
         {
             if (!attr.Action.HasFlag(LogAction.OnCall))
             {
                 return;
             }
 
-            var allParams = method.GetParameters();
-
             var ctx = new StartLogContext()
             {
-                Method = method,
+                CalledObject = invocation.Proxy,
+                Method = invocation.Method,
                 Attribute = attr,
-                Parameters = allParams,
-                Values = allParameters,
+                Arguments = invocation.Arguments
             };
 
             LogSubject.OnNext(ctx);
         }
 
-        private void NotifyResultLogs(MethodInfo method, object result, LogAttribute attr)
+        /// <param name="result">
+        /// override default result
+        /// used to collect Task result
+        /// </param>
+        private void NotifyResultLogs(IInvocation invocation, LogAttribute attr, object result = null)
         {
             var ctx = new ResultLogContext()
             {
-                Method = method,
+                CalledObject = invocation.Proxy,
+                Method = invocation.Method,
                 Attribute = attr,
-                Result = result,
+                Result = result ?? invocation.ReturnValue,
             };
 
             LogSubject.OnNext(ctx);
         }
 
-        private void NotifyVoidResultLogs(MethodInfo method, LogAttribute attr)
+        private void NotifyVoidResultLogs(IInvocation invocation, LogAttribute attr)
         {
             var ctx = new VoidResultLogContext()
             {
-                Method = method,
+                CalledObject = invocation.Proxy,
+                Method = invocation.Method,
                 Attribute = attr,
             };
 

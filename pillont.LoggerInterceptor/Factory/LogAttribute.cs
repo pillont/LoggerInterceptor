@@ -8,16 +8,10 @@ namespace pillont.LoggerInterceptors.Factory
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Parameter | AttributeTargets.Property, Inherited = true, AllowMultiple = true)]
     public class LogAttribute : Attribute
     {
-        public LogAction Action { get; }
+        public LogAction Action { get; set; } = LogAction.All;
 
-        /// <summary>
-        /// Message to show during assert fail
-        /// </summary>
-        public string Message { get; set; }
-
-        public LogAttribute(LogAction action = LogAction.All)
-        {
-            Action = action;
-        }
+        public string EnterMessage { get; set; }
+        public string ErrorMessage { get; set; }
+        public string ExitMessage { get; set; }
     }
 }

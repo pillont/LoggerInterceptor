@@ -21,16 +21,16 @@ namespace pillont.LoggerInterceptors.Logic.Notify
                 Target = invocation.InvocationTarget
             };
 
-            service.ApplyCallLogs(invocation.Method, invocation.Arguments);
+            service.ApplyCallLogs(invocation);
 
             try
             {
                 invocation.Proceed();
-                service.ApplyResultLogs(invocation.Method, invocation.ReturnValue);
+                service.ApplyResultLogs(invocation);
             }
             catch (Exception e)
             {
-                service.ApplyErrorLogs(invocation.Method, e);
+                service.ApplyErrorLogs(invocation, e);
                 throw;
             }
         }
